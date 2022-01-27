@@ -35,7 +35,7 @@ def sddip(file, H, M):
         model.sMax = Param()                        # estoque máximo
 
         # Variáveis
-        model.s = Var(domain=NonNegativeReals, bounds=(0, 1))   # estoque ao final deste estágio (fração do limite de estoque)
+        model.s = Var(domain=NonNegativeReals, bounds=(model.sMin, model.sMax))     # estoque ao final deste estágio
         if t > 0:
             model.u = Var(domain=NonNegativeReals)      # volume adquirido que chega neste estágio
             # Variáveis artificiais para garantir recurso completo
@@ -90,59 +90,59 @@ def sddip(file, H, M):
             if t == 0:              # primeiro estágio
                 def objetivo(model):
                     return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) +\
-                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.sMax*model.s + model.theta
+                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.s + model.theta
             elif t == 1:            # segundo estágio
                 if H == 3:          # t também é o penúltimo
                     def objetivo(model):
-                        return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) + model.h*model.sMax*model.s +\
+                        return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) + model.h*model.s +\
                             C*model.phi1 + C*model.phi2 + model.theta -\
                             sum(model.piv1[c]*model.zv1[c] for c in model.P1) - sum(model.piv2[c]*model.zv2[c] for c in model.P2)
                 else:
                     def objetivo(model):
                         return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) +\
-                            sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.sMax*model.s +\
+                            sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.s +\
                             C*model.phi1 + C*model.phi2 + model.theta -\
                             sum(model.piv1[c]*model.zv1[c] for c in model.P1) - sum(model.piv2[c]*model.zv2[c] for c in model.P2)
             elif t < H - 2:         # caso geral
                 def objetivo(model):
                     return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) +\
-                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.sMax*model.s +\
+                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.s +\
                         C*model.phi1 + C*model.phi2 + model.theta - sum(model.piv1[c]*model.zv1[c] for c in model.P) -\
                         sum(model.piv2[c]*model.zv2[c] for c in model.P2)
             elif t == H - 2:        # penúltimo estágio
                 def objetivo(model):
-                    return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) + model.h*model.sMax*model.s +\
+                    return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) + model.h*model.s +\
                         C*model.phi1 + C*model.phi2 + model.theta - sum(model.piv1[c]*model.zv1[c] for c in model.P) -\
                         sum(model.piv2[c]*model.zv2[c] for c in model.P2)
             else:                   # último estágio
                 def objetivo(model):
-                    return model.h*model.sMax*model.s + C*model.phi1 + C*model.phi2 - sum(model.piv1[c]*model.zv1[c] for c in model.P)
+                    return model.h*model.s + C*model.phi1 + C*model.phi2 - sum(model.piv1[c]*model.zv1[c] for c in model.P)
         else:
             if t == 0:              # primeiro estágio
                 def objetivo(model):
                     return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) +\
-                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.sMax*model.s + model.theta
+                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.s + model.theta
             elif t < H - 2:         # caso geral
                 def objetivo(model):
                     return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) +\
-                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.sMax*model.s +\
+                        sum(model.f[c]*model.q[c]*model.v2[c] for c in model.P2) + model.h*model.s +\
                         C*model.phi1 + C*model.phi2 + model.theta
             elif t == H - 2:        # penúltimo estágio
                 def objetivo(model):
-                    return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) + model.h*model.sMax*model.s +\
+                    return sum(model.f[c]*model.q[c]*model.v1[c] for c in model.P1) + model.h*model.s +\
                         C*model.phi1 + C*model.phi2 + model.theta
             else:                   # último estágio
                 def objetivo(model):
-                    return model.h*model.sMax*model.s + C*model.phi1 + C*model.phi2
+                    return model.h*model.s + C*model.phi1 + C*model.phi2
         model.OBJ = Objective(rule=objetivo)
 
         # Restrições
         if t > 0:               # caso geral
             def balanco(model):
-                return model.a + model.sMax*model.sAnt + model.u + model.phi1 == model.dk + model.sMax*model.s + model.phi2
+                return model.a + model.sAnt + model.u + model.phi1 == model.dk + model.s + model.phi2
         else:                   # primeiro estágio
             def balanco(model):
-                return model.a == model.d[model.S.at(1)] + model.sMax*model.s
+                return model.a == model.d[model.S.at(1)] + model.s
         model.balanco = Constraint(rule=balanco)
 
         if t > 0:
@@ -410,7 +410,7 @@ def sddip(file, H, M):
                 for i in range(len(sigma)):
                     sigma_e += sigma[i] * eLists[t+1][i]
                 e += models[t+1].p[s] * (pi[0]*(models[t+1].d[s] - models[t+1].a) + sigma_e)
-                Es += models[t+1].p[s] * models[t+1].sMax * pi[0]
+                Es += models[t+1].p[s] * pi[0]
                 if t > 0:
                     for c in models[t].P:
                         Ev1[c] -= models[t+1].p[s] * models[t].q[c] * pi[1]
@@ -457,7 +457,7 @@ def sddip(file, H, M):
                     pi = obtemDuais(t + 1)[0]
                 print(f"pi = {pi}")
                 e += models[t+1].p[s] * pi[0] * (models[t+1].d[s] - models[t+1].a)
-                Es += models[t+1].p[s] * models[t+1].sMax * pi[0]
+                Es += models[t+1].p[s] * pi[0]
                 for c in models[t+1].P:
                     Ev1[c] -= models[t+1].p[s] * models[t+1].q[c] * pi[1]
             models[t].cortesOtimalidade.add(expr=Es*models[t].s + sum(Ev1[c]*models[t].v1[c] for c in models[t].P) +
@@ -609,6 +609,7 @@ def sddip(file, H, M):
         resolveCenario(0, 0, 0)
         #models[0].display()
         LB = value(models[0].OBJ)
+        print(f"\nLB = {LB}, UB = {UB}")
         #if (LB - LBant < EPSILON):         # critério com amostragem
         if (UB - LB < EPSILON):             # critério sem amostragem
             break                           # ótimo encontrado
@@ -673,15 +674,15 @@ def sddip(file, H, M):
             for m in range(M):
                 if cenarioRepetido(m, t) == -1:
                     adicionaCorteBenders(m, t)
-                    adicionaCorteLShapedInteiro(m, t)
+                    #adicionaCorteLShapedInteiro(m, t)
                     #adicionaCorteBendersFortalecido(m, t)
                     
         # Primeiro estágio
         adicionaCorteBenders(0, 0)
-        adicionaCorteLShapedInteiro(0, 0)
+        #adicionaCorteLShapedInteiro(0, 0)
         #adicionaCorteBendersFortalecido(0, 0)
 
-        input("Iterando meninas...")
+        #input("Iterando meninas...")
     
     input(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(models[0].OBJ)}")
     print(f"Estágio 0:\ns = {value(models[0].s)}\nv1 = {[value(models[0].v1[c]) for c in models[0].P1]}")
