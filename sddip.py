@@ -1,4 +1,7 @@
-# Implementa o algoritmo SDDiP para um problema de Lot Sizing
+# Implementa o algoritmo SDDiP para um problema de Lot Sizing Estocástico. Assume que:
+# * só chegam cargas pré-adquiridas nos dois primeiros estágios
+# * todas as cargas em P chegam em um estágio
+# * todas as cargas em A podem ser canceladas ou adiadas com um estágio de antecedência. Se adiadas, chegam em um estágio.
 
 from pyomo.environ import *
 from pyomo.opt import TerminationCondition
