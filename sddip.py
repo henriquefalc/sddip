@@ -35,26 +35,26 @@ def sddip(file, H, M):
         model.sMax = Param()                        # estoque máximo
 
         # Variáveis
-        model.s = Var(domain=NonNegativeReals, bounds=(model.sMin, model.sMax))     # estoque ao final deste estágio
+        model.s = Var(domain=NonNegativeReals)      # estoque ao final deste estágio
         if t > 0:
-            model.u = Var(domain=NonNegativeReals)      # volume adquirido que chega neste estágio
+            model.u = Var(domain=NonNegativeReals)  # volume adquirido que chega neste estágio
             # Variáveis artificiais para garantir recurso completo
             model.phi1 = Var(domain=NonNegativeReals)
             model.phi2 = Var(domain=NonNegativeReals)
         if t < H - 1:       # até o penúltimo estágio
             if t > 0:
                 if LR or LRz:
-                    model.v1 = Var(model.P, domain=NonNegativeReals, bounds=(0, 1))
+                    model.v1 = Var(model.P, domain=NonNegativeReals)
                 else:
                     model.v1 = Var(model.P, domain=Binary)      # se a carga c foi adquirida e chega no próximo estágio
             else:
                 if LR or LRz:
-                    model.v1 = Var(model.P1, domain=NonNegativeReals, bounds=(0, 1))
+                    model.v1 = Var(model.P1, domain=NonNegativeReals)
                 else:
                     model.v1 = Var(model.P1, domain=Binary)     # se a carga c foi adquirida e chega no próximo estágio
             if t < H - 2:   # até o antepenúltimo estágio
                 if LR or LRz:
-                    model.v2 = Var(model.P2, domain=NonNegativeReals, bounds=(0, 1))
+                    model.v2 = Var(model.P2, domain=NonNegativeReals)
                 else:
                     model.v2 = Var(model.P2, domain=Binary)     # se a carga c foi adquirida e chega daqui a dois estágios
             model.theta = Var(bounds=(L, None))
@@ -144,6 +144,9 @@ def sddip(file, H, M):
             def balanco(model):
                 return model.a == model.d[model.S.at(1)] + model.s
         model.balanco = Constraint(rule=balanco)
+        
+        model.limiteSMin = Constraint(expr=model.s >= model.sMin)
+        model.limiteSMax = Constraint(expr=model.s <= model.sMax)
 
         if t > 0:
             if t > 1:
@@ -182,6 +185,18 @@ def sddip(file, H, M):
                     def restricaoZv2(model, c):
                         return model.zv2[c] == model.v2Ant[c]
                     model.restricaoZv2 = Constraint(model.P2, rule=restricaoZv2)
+        
+        if (LR or LRz) and (t < H - 1):         # até o penúltimo estágio
+            def limiteV1(model, c):
+                return model.v1[c] <= 1
+            if t > 0:
+                model.limiteV1 = Constraint(model.P, rule=limiteV1)
+            else:
+                model.limiteV1 = Constraint(model.P1, rule=limiteV1)
+            if t < H - 2:                       # até o antepenúltimo estágio
+                def limiteV2(model, c):
+                    return model.v2[c] <= 1
+                model.limiteV2 = Constraint(model.P2, rule=limiteV2)
 
         if t < H - 1:
             model.cortesOtimalidade = ConstraintList()      # lista de cortes de otimalidade adicionados ao longo do algoritmo
@@ -193,9 +208,9 @@ def sddip(file, H, M):
     # Cria os modelos
     opt = SolverFactory("glpk")
     models = [criaModelo(t) for t in range(H)]
-    modelsLR = [criaModelo(t, LR=True) for t in range(H)]
-    modelsLRz = [criaModelo(t, LRz=True) for t in range(H)]
-    modelsLagr = [criaModelo(t, LagrSub=True) for t in range(H)]
+    modelsLR = [criaModelo(t, LR=True) for t in range(H - 1)]
+    #modelsLRz = [criaModelo(t, LRz=True) for t in range(H)]
+    #modelsLagr = [criaModelo(t, LagrSub=True) for t in range(H)]
 
     # Retorna uma lista de M cenários amostrados aleatoriamente
     def geraAmostra():
@@ -254,7 +269,7 @@ def sddip(file, H, M):
     v2Atual = [[{} for t in range(H)] for m in range(M)]
 
     # Soluções duais atuais do último estágio de cada amostra
-    piAtual = [[] for m in range(M)]
+    piAtual = [{} for m in range(M)]
 
     # Termos independentes dos cortes gerados ao longo do algoritmo, para cada subproblema
     eLists = [[] for t in range(H)]
@@ -269,11 +284,11 @@ def sddip(file, H, M):
         if s == None:
             s = amostra[m][t]
         
-        if LRz:
-            model = modelsLRz[t]
-        elif LagrSub:
-            model = modelsLagr[t]
-        elif LR and t < H - 1:
+        #if LRz:
+        #    model = modelsLRz[t]
+        #elif LagrSub:
+        #    model = modelsLagr[t]
+        if LR and t < H - 1:
             model = modelsLR[t]
         else:
             model = models[t]
@@ -302,8 +317,14 @@ def sddip(file, H, M):
                 if t < H - 1:
                     for c in model.P2:
                         model.piv2[c].set_value(pi[1][c])
-        #model.pprint()
+        #if t == 1:
+        #    model.pprint()
+        #    input("Uai")
         return opt.solve(model)
+        #if t == 1:
+        #    model.display()
+        #    input("Uai")
+        #return res
     
     # Verifica se existe algum item na amostra anterior a m que é coincide com o item m até o estágio t
     # Se sim, retorna seu índice.
@@ -333,7 +354,7 @@ def sddip(file, H, M):
         
         # Se último estágio, aproveita e coleta as duais
         if t == H - 1:
-            piAtual[m] = obtemDuais(t)[0]
+            piAtual[m] = obtemDuais(t)
         
         imprimeSolucao(t)
     
@@ -343,17 +364,21 @@ def sddip(file, H, M):
             model = modelsLR[t]
         else:
             model = models[t]
-        duais = ([], [])        # (pi, sigma)
+        duais = {"cortesOtimalidade": [], "carga2Estagios": {}, "limiteV1": {}, "limiteV2": {}}
         for c in model.component_objects(Constraint, active=True):
-            if c.getname() == "cortesOtimalidade":
+            name = c.getname()
+            if name == "cortesOtimalidade":
                 for index in c:
-                    duais[1].append(model.dual[c[index]])
+                    duais[name].append(model.dual[c[index]])
+            elif name in ["carga2Estagios", "limiteV1", "limiteV2"]:
+                for index in c:
+                    duais[name][index] = model.dual[c[index]]
             else:
                 for index in c:
-                    duais[0].append(model.dual[c[index]])
+                    duais[name] = model.dual[c[index]]
         return duais
     
-    # Retorna o vetor dual do problema Lagrangeano associado às restrições z == s e z == v do estágio t
+    '''# Retorna o vetor dual do problema Lagrangeano associado às restrições z == s e z == v do estágio t
     def obtemDuaisLRz(t):
         duais = [{}, {}]         # (piv1, piv2)
         for c in modelsLRz[t].component_objects(Constraint, active=True):
@@ -363,7 +388,7 @@ def sddip(file, H, M):
             elif c.getname() == "restricaoZv2":
                 for index in c:
                     duais[1][index] = modelsLRz[t].dual[c[index]]
-        return duais
+        return duais'''
     
     # Copia a solução do estágio t da amostra m1 para o correspondente da amostra m2
     def copiaSolucao(t, m1, m2):
@@ -402,43 +427,49 @@ def sddip(file, H, M):
             Ev2 = {c: 0 for c in models[t].P2}
             for s in models[t+1].S:
                 resolveCenario(t + 1, m, s, LR=True)
+                #modelsLR[t+1].pprint()
                 #modelsLR[t+1].display()
-                (pi, sigma) = obtemDuais(t + 1)
-                print(f"pi = {pi}, sigma = {sigma}")
+                duais = obtemDuais(t + 1)
+                print(f"duais = {duais}")
 
                 sigma_e = 0
-                for i in range(len(sigma)):
-                    sigma_e += sigma[i] * eLists[t+1][i]
-                e += models[t+1].p[s] * (pi[0]*(models[t+1].d[s] - models[t+1].a) + sigma_e)
-                Es += models[t+1].p[s] * pi[0]
+                for i in range(len(duais["cortesOtimalidade"])):
+                    #print(f"sigma_e += {duais['cortesOtimalidade'][i]} * {eLists[t+1][i]} = {duais['cortesOtimalidade'][i] * eLists[t+1][i]}")
+                    sigma_e += duais["cortesOtimalidade"][i] * eLists[t+1][i]
+                #print(f"sigma_e = {sigma_e}")
+                e += models[t+1].p[s] * (duais["balanco"]*(models[t+1].d[s] - models[t+1].a) + duais["limiteSMin"]*models[t+1].sMin +
+                    duais["limiteSMax"]*models[t+1].sMax + sum(duais["limiteV1"][d] for d in duais["limiteV1"]) +
+                    sum(duais["limiteV2"][d] for d in duais["limiteV2"]) + sigma_e)
+                #print(f"e += {models[t+1].p[s]} * ({duais['balanco']}*({models[t+1].d[s]} - {models[t+1].a}) + {duais['limiteSMin']}*{models[t+1].sMin} + {duais['limiteSMax']}*{models[t+1].sMax} + {sum(duais["limiteV1"][d] for d in duais['limiteV1'])} + {sum(duais["limiteV2"][d] for d in duais['limiteV2'])} + {sigma_e}) = {models[t+1].p[s] * (duais['balanco']*(models[t+1].d[s] - models[t+1].a) + duais['limiteSMin']*models[t+1].sMin + duais['limiteSMax']*models[t+1].sMax + sum(duais["limiteV1"][d] for d in duais['limiteV1']) + sum(duais["limiteV2"][d] for d in duais['limiteV2']) + sigma_e)}")
+                Es += models[t+1].p[s] * duais["balanco"]
                 if t > 0:
                     for c in models[t].P:
-                        Ev1[c] -= models[t+1].p[s] * models[t].q[c] * pi[1]
+                        Ev1[c] -= models[t+1].p[s] * models[t+1].q[c] * duais["chegada"]
                 else:
                     for c in models[t].P1:
-                        Ev1[c] -= models[t+1].p[s] * models[t].q[c] * pi[1]
-                c1 = 0
+                        Ev1[c] -= models[t+1].p[s] * models[t+1].q[c] * duais["chegada"]
                 for c in models[t].P2:
-                    Ev2[c] -= models[t+1].p[s] * pi[2+c1]
-                    c1 += 1
+                    #print(f"Ev2[{c}] -= {models[t+1].p[s]} * {duais['carga2Estagios'][c]} = {models[t+1].p[s] * duais['carga2Estagios'][c]}")
+                    Ev2[c] -= models[t+1].p[s] * duais["carga2Estagios"][c]
+                #print(f"Ev2 = {Ev2}")
             if t > 0:
                 models[t].cortesOtimalidade.add(expr=Es*models[t].s + sum(Ev1[c]*models[t].v1[c] for c in models[t].P) +\
                     sum(Ev2[c]*models[t].v2[c] for c in models[t].P2) + models[t].theta >= e)
                 modelsLR[t].cortesOtimalidade.add(expr=Es*modelsLR[t].s + sum(Ev1[c]*modelsLR[t].v1[c] for c in modelsLR[t].P) +\
                     sum(Ev2[c]*modelsLR[t].v2[c] for c in modelsLR[t].P2) + modelsLR[t].theta >= e)
-                modelsLRz[t].cortesOtimalidade.add(expr=Es*modelsLRz[t].s + sum(Ev1[c]*modelsLRz[t].v1[c] for c in modelsLRz[t].P) +\
-                    sum(Ev2[c]*modelsLRz[t].v2[c] for c in modelsLRz[t].P2) + modelsLRz[t].theta >= e)
-                modelsLagr[t].cortesOtimalidade.add(expr=Es*modelsLagr[t].s + sum(Ev1[c]*modelsLagr[t].v1[c] for c in modelsLagr[t].P) +\
-                    sum(Ev2[c]*modelsLagr[t].v2[c] for c in modelsLagr[t].P2) + modelsLagr[t].theta >= e)
+                #modelsLRz[t].cortesOtimalidade.add(expr=Es*modelsLRz[t].s + sum(Ev1[c]*modelsLRz[t].v1[c] for c in modelsLRz[t].P) +\
+                #    sum(Ev2[c]*modelsLRz[t].v2[c] for c in modelsLRz[t].P2) + modelsLRz[t].theta >= e)
+                #modelsLagr[t].cortesOtimalidade.add(expr=Es*modelsLagr[t].s + sum(Ev1[c]*modelsLagr[t].v1[c] for c in modelsLagr[t].P) +\
+                #    sum(Ev2[c]*modelsLagr[t].v2[c] for c in modelsLagr[t].P2) + modelsLagr[t].theta >= e)
             else:
                 models[t].cortesOtimalidade.add(expr=Es*models[t].s + sum(Ev1[c]*models[t].v1[c] for c in models[t].P1) +\
                     sum(Ev2[c]*models[t].v2[c] for c in models[t].P2) + models[t].theta >= e)
                 modelsLR[t].cortesOtimalidade.add(expr=Es*modelsLR[t].s + sum(Ev1[c]*modelsLR[t].v1[c] for c in modelsLR[t].P1) +\
                     sum(Ev2[c]*modelsLR[t].v2[c] for c in modelsLR[t].P2) + modelsLR[t].theta >= e)
-                modelsLRz[t].cortesOtimalidade.add(expr=Es*modelsLRz[t].s + sum(Ev1[c]*modelsLRz[t].v1[c] for c in modelsLRz[t].P1) +\
-                    sum(Ev2[c]*modelsLRz[t].v2[c] for c in modelsLRz[t].P2) + modelsLRz[t].theta >= e)
-                modelsLagr[t].cortesOtimalidade.add(expr=Es*modelsLagr[t].s + sum(Ev1[c]*modelsLagr[t].v1[c] for c in modelsLagr[t].P1) +\
-                    sum(Ev2[c]*modelsLagr[t].v2[c] for c in modelsLagr[t].P2) + modelsLagr[t].theta >= e)
+                #modelsLRz[t].cortesOtimalidade.add(expr=Es*modelsLRz[t].s + sum(Ev1[c]*modelsLRz[t].v1[c] for c in modelsLRz[t].P1) +\
+                #    sum(Ev2[c]*modelsLRz[t].v2[c] for c in modelsLRz[t].P2) + modelsLRz[t].theta >= e)
+                #modelsLagr[t].cortesOtimalidade.add(expr=Es*modelsLagr[t].s + sum(Ev1[c]*modelsLagr[t].v1[c] for c in modelsLagr[t].P1) +\
+                #    sum(Ev2[c]*modelsLagr[t].v2[c] for c in modelsLagr[t].P2) + modelsLagr[t].theta >= e)
             print(f"Corte de Benders para o estágio {t}: theta >= {e} - {Es}s - (", end="")
             for c in (models[t].P if t > 0 else models[t].P1):
                 print(f"{Ev1[c]}v1,{c} + ", end="")
@@ -449,85 +480,90 @@ def sddip(file, H, M):
         else:
             for s in models[t+1].S:
                 if s == amostra[m][t+1]:     # este cenário já foi resolvido na fase forward
-                    pi = piAtual[m]
+                    duais = piAtual[m]
                 else:
                     resolveCenario(t + 1, m, s, LR=True)
-                    #modelsLR[t+1].pprint()
-                    #modelsLR[t+1].display()
-                    pi = obtemDuais(t + 1)[0]
-                print(f"pi = {pi}")
-                e += models[t+1].p[s] * pi[0] * (models[t+1].d[s] - models[t+1].a)
-                Es += models[t+1].p[s] * pi[0]
+                    #models[t+1].pprint()
+                    #models[t+1].display()
+                    duais = obtemDuais(t + 1)
+                print(f"duais = {duais}")
+                
+                e += models[t+1].p[s] * (duais["balanco"]*(models[t+1].d[s] - models[t+1].a) + duais["limiteSMin"]*models[t+1].sMin +
+                    duais["limiteSMax"]*models[t+1].sMax + sum(duais["limiteV1"][d] for d in duais["limiteV1"]))
+                Es += models[t+1].p[s] * duais["balanco"]
                 for c in models[t+1].P:
-                    Ev1[c] -= models[t+1].p[s] * models[t+1].q[c] * pi[1]
+                    Ev1[c] -= models[t+1].p[s] * models[t+1].q[c] * duais["chegada"]
             models[t].cortesOtimalidade.add(expr=Es*models[t].s + sum(Ev1[c]*models[t].v1[c] for c in models[t].P) +
                 models[t].theta >= e)
             modelsLR[t].cortesOtimalidade.add(expr=Es*modelsLR[t].s + sum(Ev1[c]*modelsLR[t].v1[c] for c in modelsLR[t].P) +
                 modelsLR[t].theta >= e)
-            modelsLRz[t].cortesOtimalidade.add(expr=Es*modelsLRz[t].s + sum(Ev1[c]*modelsLRz[t].v1[c] for c in modelsLRz[t].P) +
-                modelsLRz[t].theta >= e)
-            modelsLagr[t].cortesOtimalidade.add(expr=Es*modelsLagr[t].s + sum(Ev1[c]*modelsLagr[t].v1[c] for c in modelsLagr[t].P) +
-                modelsLagr[t].theta >= e)
+            #modelsLRz[t].cortesOtimalidade.add(expr=Es*modelsLRz[t].s + sum(Ev1[c]*modelsLRz[t].v1[c] for c in modelsLRz[t].P) +
+            #    modelsLRz[t].theta >= e)
+            #modelsLagr[t].cortesOtimalidade.add(expr=Es*modelsLagr[t].s + sum(Ev1[c]*modelsLagr[t].v1[c] for c in modelsLagr[t].P) +
+            #    modelsLagr[t].theta >= e)
             print(f"Corte de Benders para o estágio {t}: theta >= {e} - {Es}s - (", end="")
             for c in models[t].P:
                 print(f"{Ev1[c]}v1,{c} + ", end="")
             print(")")
         eLists[t].append(e)
     
-    # Adiciona um corte de otimalidade L-shaped inteiro agregado ao problema do estágio t, considerando a solução atual da
+    '''# Adiciona um corte de otimalidade L-shaped inteiro agregado ao problema do estágio t, considerando a solução atual da
     # amostra m para este estágio
     def adicionaCorteLShapedInteiro(m, t):
         print(f"\nAdiciona corte L-shaped inteiro para o estágio {t}, amostra {m} = {amostra[m]}")
         obj = 0
         for s in models[t+1].S:
             resolveCenario(t + 1, m, s)
+            #models[t+1].pprint()
             #models[t+1].display()
             obj += models[t+1].p[s]*value(models[t+1].OBJ)
             print(f"obj = {obj}")
         print(f"v1 = {v1Atual[m][t]}, v2 = {v2Atual[m][t]}")
         if t > 0:
-            print(f"apendando no e: {(obj - L)*(-sum(v1Atual[m][t][c] for c in models[t].P) - sum(v2Atual[m][t][c] for c in models[t].P2)) + obj}")
-            eLists[t].append((obj - L)*(-sum(v1Atual[m][t][c] for c in models[t].P) - sum(v2Atual[m][t][c] for c in models[t].P2)) + obj)
-            models[t].cortesOtimalidade.add(expr=models[t].theta >= (obj - L)*
+            print(f"apendando no e: {(obj - L)*(sum(v1Atual[m][t][c] for c in models[t].P) + sum(v2Atual[m][t][c] for c in models[t].P2)) - obj}")
+            eLists[t].append((obj - L)*(sum(v1Atual[m][t][c] for c in models[t].P) + sum(v2Atual[m][t][c] for c in models[t].P2)) - obj)
+            models[t].cortesOtimalidade.add(expr=(obj - L)*
                 (sum((v1Atual[m][t][c] - 1)*models[t].v1[c] + (models[t].v1[c] - 1)*v1Atual[m][t][c] for c in models[t].P) +
-                 sum((v2Atual[m][t][c] - 1)*models[t].v2[c] + (models[t].v2[c] - 1)*v2Atual[m][t][c] for c in models[t].P2)) + obj)
-            modelsLR[t].cortesOtimalidade.add(expr=modelsLR[t].theta >= (obj - L)*
+                 sum((v2Atual[m][t][c] - 1)*models[t].v2[c] + (models[t].v2[c] - 1)*v2Atual[m][t][c] for c in models[t].P2)) -
+                models[t].theta <= -obj)
+            modelsLR[t].cortesOtimalidade.add(expr=(obj - L)*
                 (sum((v1Atual[m][t][c] - 1)*modelsLR[t].v1[c] + (modelsLR[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLR[t].P) +
-                 sum((v2Atual[m][t][c] - 1)*modelsLR[t].v2[c] + (modelsLR[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLR[t].P2)) +
-                obj)
-            modelsLRz[t].cortesOtimalidade.add(expr=modelsLRz[t].theta >= (obj - L)*
-                (sum((v1Atual[m][t][c] - 1)*modelsLRz[t].v1[c] + (modelsLRz[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLRz[t].P) +
-                 sum((v2Atual[m][t][c] - 1)*modelsLRz[t].v2[c] + (modelsLRz[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLRz[t].P2)) + obj)
-            modelsLagr[t].cortesOtimalidade.add(expr=modelsLagr[t].theta >= (obj - L)*
-                (sum((v1Atual[m][t][c] - 1)*modelsLagr[t].v1[c] + (modelsLagr[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLagr[t].P) +
-                 sum((v2Atual[m][t][c] - 1)*modelsLagr[t].v2[c] + (modelsLagr[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLagr[t].P2)) +
-                obj)
+                 sum((v2Atual[m][t][c] - 1)*modelsLR[t].v2[c] + (modelsLR[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLR[t].P2)) -
+                modelsLR[t].theta <= -obj)
+            #modelsLRz[t].cortesOtimalidade.add(expr=modelsLRz[t].theta >= (obj - L)*
+            #    (sum((v1Atual[m][t][c] - 1)*modelsLRz[t].v1[c] + (modelsLRz[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLRz[t].P) +
+            #     sum((v2Atual[m][t][c] - 1)*modelsLRz[t].v2[c] + (modelsLRz[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLRz[t].P2)) + obj)
+            #modelsLagr[t].cortesOtimalidade.add(expr=modelsLagr[t].theta >= (obj - L)*
+            #    (sum((v1Atual[m][t][c] - 1)*modelsLagr[t].v1[c] + (modelsLagr[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLagr[t].P) +
+            #     sum((v2Atual[m][t][c] - 1)*modelsLagr[t].v2[c] + (modelsLagr[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLagr[t].P2)) +
+            #    obj)
         else:
-            print(f"apendando no e: {(obj - L)*(-sum(v1Atual[m][t][c] for c in models[t].P1) - sum(v2Atual[m][t][c] for c in models[t].P2)) + obj}")
-            eLists[t].append((obj - L)*(-sum(v1Atual[m][t][c] for c in models[t].P1) - sum(v2Atual[m][t][c] for c in models[t].P2)) + obj)
-            models[t].cortesOtimalidade.add(expr=models[t].theta >= (obj - L)*
+            print(f"apendando no e: {(obj - L)*(sum(v1Atual[m][t][c] for c in models[t].P1) + sum(v2Atual[m][t][c] for c in models[t].P2)) - obj}")
+            eLists[t].append((obj - L)*(sum(v1Atual[m][t][c] for c in models[t].P1) + sum(v2Atual[m][t][c] for c in models[t].P2)) - obj)
+            models[t].cortesOtimalidade.add(expr=(obj - L)*
                 (sum((v1Atual[m][t][c] - 1)*models[t].v1[c] + (models[t].v1[c] - 1)*v1Atual[m][t][c] for c in models[t].P1) +
-                 sum((v2Atual[m][t][c] - 1)*models[t].v2[c] + (models[t].v2[c] - 1)*v2Atual[m][t][c] for c in models[t].P2)) + obj)
-            modelsLR[t].cortesOtimalidade.add(expr=modelsLR[t].theta >= (obj - L)*
+                 sum((v2Atual[m][t][c] - 1)*models[t].v2[c] + (models[t].v2[c] - 1)*v2Atual[m][t][c] for c in models[t].P2)) -
+                models[t].theta <= -obj)
+            modelsLR[t].cortesOtimalidade.add(expr=(obj - L)*
                 (sum((v1Atual[m][t][c] - 1)*modelsLR[t].v1[c] + (modelsLR[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLR[t].P1) +
-                 sum((v2Atual[m][t][c] - 1)*modelsLR[t].v2[c] + (modelsLR[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLR[t].P2)) +
-                obj)
-            modelsLRz[t].cortesOtimalidade.add(expr=modelsLRz[t].theta >= (obj - L)*
-                (sum((v1Atual[m][t][c] - 1)*modelsLRz[t].v1[c] + (modelsLRz[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLRz[t].P1) +
-                 sum((v2Atual[m][t][c] - 1)*modelsLRz[t].v2[c] + (modelsLRz[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLRz[t].P2)) + obj)
-            modelsLagr[t].cortesOtimalidade.add(expr=modelsLagr[t].theta >= (obj - L)*
-                (sum((v1Atual[m][t][c] - 1)*modelsLagr[t].v1[c] + (modelsLagr[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLagr[t].P1) +
-                 sum((v2Atual[m][t][c] - 1)*modelsLagr[t].v2[c] + (modelsLagr[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLagr[t].P2)) +
-                obj)
+                 sum((v2Atual[m][t][c] - 1)*modelsLR[t].v2[c] + (modelsLR[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLR[t].P2)) -
+                modelsLR[t].theta <= -obj)
+            #modelsLRz[t].cortesOtimalidade.add(expr=modelsLRz[t].theta >= (obj - L)*
+            #    (sum((v1Atual[m][t][c] - 1)*modelsLRz[t].v1[c] + (modelsLRz[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLRz[t].P1) +
+            #     sum((v2Atual[m][t][c] - 1)*modelsLRz[t].v2[c] + (modelsLRz[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLRz[t].P2)) + obj)
+            #modelsLagr[t].cortesOtimalidade.add(expr=modelsLagr[t].theta >= (obj - L)*
+            #    (sum((v1Atual[m][t][c] - 1)*modelsLagr[t].v1[c] + (modelsLagr[t].v1[c] - 1)*v1Atual[m][t][c] for c in modelsLagr[t].P1) +
+            #     sum((v2Atual[m][t][c] - 1)*modelsLagr[t].v2[c] + (modelsLagr[t].v2[c] - 1)*v2Atual[m][t][c] for c in modelsLagr[t].P2)) +
+            #    obj)
         print(f"Corte L-Shaped inteiro para o estágio {t}: theta >= ({obj} - {L})*((", end="")
         for c in models[t].P if t > 0 else models[t].P1:
             print(f"({v1Atual[m][t][c]} - 1)*v1,{c} + (v1,{c} - 1)*{v1Atual[m][t][c]} + ", end="")
         print(") + (", end="")
         for c in models[t].P2:
             print(f"({v2Atual[m][t][c]} - 1)*v2,{c} + (v2,{c} - 1)*{v2Atual[m][t][c]} + ", end="")
-        print(f")) + {obj}")
+        print(f")) + {obj}")'''
 
-    # Adiciona um corte de otimalidade de Benders fortalecido agregado ao problema do estágio t, considerando a solução atual da
+    '''# Adiciona um corte de otimalidade de Benders fortalecido agregado ao problema do estágio t, considerando a solução atual da
     # amostra m para este estágio
     def adicionaCorteBendersFortalecido(m, t):
         print(f"\nAdiciona corte de Benders fortalecido para o estágio {t}, amostra {m} = {amostra[m]}")
@@ -598,7 +634,7 @@ def sddip(file, H, M):
         if t < H - 2:
             for c in models[t].P2:
                 print(f"{piv2[c]}v2,{c} + ", end="")
-        print(")")
+        print(")")'''
     
     LB = LBant = -1e9
     UB = 1e9
@@ -609,13 +645,12 @@ def sddip(file, H, M):
         resolveCenario(0, 0, 0)
         #models[0].display()
         LB = value(models[0].OBJ)
-        print(f"\nLB = {LB}, UB = {UB}")
-        #if (LB - LBant < EPSILON):         # critério com amostragem
-        if (UB - LB < EPSILON):             # critério sem amostragem
+        if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério para B ou B+I
+        #if UB - LB < EPSILON:               # critério para I
             break                           # ótimo encontrado
 
         iter += 1
-        print(f"\n*** ITERAÇÃO {iter} - LB = {LB}, UB = {UB}, LBant = {LBant}***")
+        input(f"\n*** ITERAÇÃO {iter} - LB = {LB}, UB = {UB}, LBant = {LBant}***")
 
         # Amostragem - descomentar para gerar uma amostra por iteração
         #amostra = geraAmostra()
@@ -652,14 +687,16 @@ def sddip(file, H, M):
         
         # Atualiza upper bound
         media /= somaprob
-        UB = media
+        if media < UB:
+            UB = media
         # Descomentar este trecho para usar upper bound estatístico
         #somavar = 0
         #for m in range(M):
         #    somavar += prob[m] * (obj[m] - media)**2
         #UB = media + ZALPHA2 * (somavar / (M * somaprob))**0.5
-        print(f"\nLB = {LB}, UB = {UB}")
-        if (UB - LB < EPSILON):             # critério sem amostragem
+        input(f"\nLB = {LB}, UB = {UB}")
+        #if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério para B ou B+I
+        if UB - LB < EPSILON:               # critério para I
             break                           # ótimo encontrado
 
         print("\n* PASSO BACKWARD *")
@@ -681,10 +718,8 @@ def sddip(file, H, M):
         adicionaCorteBenders(0, 0)
         #adicionaCorteLShapedInteiro(0, 0)
         #adicionaCorteBendersFortalecido(0, 0)
-
-        #input("Iterando meninas...")
     
-    input(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(models[0].OBJ)}")
+    input(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {UB}")
     print(f"Estágio 0:\ns = {value(models[0].s)}\nv1 = {[value(models[0].v1[c]) for c in models[0].P1]}")
     print(f"v2 = {[value(models[0].v2[c]) for c in models[0].P2]}\ntheta = {value(models[0].theta)}")
     for m in range(M):
@@ -693,6 +728,7 @@ def sddip(file, H, M):
             resolveCenario(t, m)
             imprimeSolucao(t)
     print(f"\nIterações: {iter}")
+    print(f"gap = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
 
 # Modo de execução:
 # python sddip.py <arquivo> <H> <M>
