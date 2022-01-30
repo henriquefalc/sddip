@@ -1,62 +1,39 @@
-set C := 1 2 3 4 5 6;
+set P1 := 1 2 3;
+set P2 := 4 5 6;
+
+param f :=
+    1 1.5
+    2 1.4
+    3 1.3
+    4 1.4
+    5 1.2
+    6 1;
     
 param q :=
     1 5
-    2 6
-    3 10
-    4 11
+    2 10
+    3 20
+    4 10
     5 20
     6 40;
-
-param ca :=
-    1 1.5
-    2 1.4
-    3 1.4
-    4 1.3
-    5 1.2
-    6 1;
-
-param cc :=
-    1 0.7
-    2 0.7
-    3 0.7
-    4 0.6
-    5 0.6
-    6 0.5;
-
-param cp :=
-    1 0.3
-    2 0.3
-    3 0.3
-    4 0.3
-    5 0.3
-    6 0.2;
 
 param sMin := 0;
 param sMax := 80;
 
 namespace t0
 {
-    set P := 2 4 5 6;
-    set A := 1 3;
-    set AAnt := 1 3;
     set S := 1;
-
     param p :=
         1 1;
     param d :=
         1 5;
     param h := 1.5;
-    param s0 := 3;
+    param a := 10;
 }
 
 namespace t1
 {
-    set P := 2 4 5 6;
-    set PAnt := 2 4 5 6;
-    set AAnt := 1 3;
     set S := 1 2;
-
     param p :=
         1 0.5
         2 0.5;
@@ -64,15 +41,12 @@ namespace t1
         1 10
         2 20;
     param h := 1.4;
+    param a := 5;
 }
 
 namespace t2
 {
-    set P := 2 4 5 6;
-    set PAnt := 2 4 5 6;
-    set A2Ant := 1 3;
     set S := 1 2;
-
     param p :=
         1 0.5
         2 0.5;
@@ -80,14 +54,12 @@ namespace t2
         1 15
         2 30;
     param h := 1.6;
+    param a := 0;
 }
 
 namespace t3
 {
-    set P := 2 4 5 6;
-    set PAnt := 2 4 5 6;
     set S := 1 2;
-
     param p :=
         1 0.5
         2 0.5;
@@ -95,14 +67,12 @@ namespace t3
         1 20
         2 35;
     param h := 1.4;
+    param a := 0;
 }
 
 namespace t4
 {
-    set P := 2 4 5 6;
-    set PAnt := 2 4 5 6;
     set S := 1 2;
-
     param p :=
         1 0.5
         2 0.5;
@@ -110,4 +80,5 @@ namespace t4
         1 10
         2 40;
     param h := 1.8;
+    param a := 0;
 }

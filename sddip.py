@@ -38,6 +38,7 @@ def sddip(file, H, M):
         model.h = Param()                           # custo unitário de estoque
         model.sMin = Param()                        # estoque mínimo
         model.sMax = Param()                        # estoque máximo
+        model.s0 = Param()                          # estoque inicial antes do primeiro estágio
 
         # Variáveis
         model.s = Var(domain=NonNegativeReals)              # estoque ao final deste estágio
@@ -110,7 +111,7 @@ def sddip(file, H, M):
                 return sum(model.q[c] for c in model.AAnt) + model.sAnt + model.u + model.phi1 == model.dk + model.w + model.s + model.phi2
         else:                   # primeiro estágio
             def balanco(model):
-                return sum(model.q[c] for c in model.AAnt) == model.d[model.S.at(1)] + model.s
+                return sum(model.q[c] for c in model.AAnt) + model.s0 == model.d[model.S.at(1)] + model.s
         model.balanco = Constraint(rule=balanco)
         model.limiteSMin = Constraint(expr=model.s >= model.sMin)
         model.limiteSMax = Constraint(expr=model.s <= model.sMax)
@@ -414,7 +415,7 @@ def sddip(file, H, M):
             break                           # ótimo encontrado
 
         iter += 1
-        input(f"\n*** ITERAÇÃO {iter} - LB = {LB}, UB = {UB}, LBant = {LBant}***")
+        #input(f"\n*** ITERAÇÃO {iter} - LB = {LB}, UB = {UB}, LBant = {LBant}***")
 
         # Amostragem - descomentar para gerar uma amostra por iteração
         #amostra = geraAmostra()
@@ -458,7 +459,7 @@ def sddip(file, H, M):
         #for m in range(M):
         #    somavar += prob[m] * (obj[m] - media)**2
         #UB = media + ZALPHA2 * (somavar / (M * somaprob))**0.5
-        input(f"\nLB = {LB}, UB = {UB}")
+        #input(f"\nLB = {LB}, UB = {UB}")
         #if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério para B ou B+I
         if UB - LB < EPSILON:               # critério para I
             break                           # ótimo encontrado
@@ -484,15 +485,16 @@ def sddip(file, H, M):
         #adicionaCorteBendersFortalecido(0, 0)
     
     print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {UB}")
+    print(f"gap = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
+    print(f"Iterações: {iter}")
     print(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}")
     print(f"x = {[value(models[0].x[c]) for c in models[0].A]}")
-    print(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}")
-    print(f"\nIterações: {iter}")
-    input(f"gap = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
+    input(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}")
     for t in range(1, H):
         print(f"\nEstágio {t}:")
         for m in range(M):
             if cenarioRepetido(m, t) == -1:
+                print(f"\nAmostra {m}: {amostra[m]}", end="")
                 resolveCenario(t, m)
                 imprimeSolucao(t)
 

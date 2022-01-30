@@ -35,6 +35,7 @@ def pde(file, K, pred):
     model.h = Param(model.T)                    # custo unitário de estoque em cada estágio
     model.sMin = Param()                        # estoque mínimo
     model.sMax = Param()                        # estoque máximo
+    model.s0 = Param()                          # estoque inicial antes do primeiro estágio
 
     # Variáveis
     model.s = Var(model.S, domain=NonNegativeReals, bounds=(model.sMin, model.sMax))    # estoque ao final de cada cenário
@@ -62,7 +63,7 @@ def pde(file, K, pred):
         elif stages[s] == 2:    # segundo estágio
             return sum(model.q[c] for c in model.A2) + model.s[pred[s]] + model.u[s] == model.d[s] + model.w[s] + model.s[s]
         else:                   # primeiro estágio
-            return sum(model.q[c] for c in model.A1) == model.d[s] + model.s[s]
+            return sum(model.q[c] for c in model.A1) + model.s0 == model.d[s] + model.s[s]
     model.balanco = Constraint(model.S, rule=balanco)
 
     def aquisicao(model, s):
@@ -93,9 +94,9 @@ def pde(file, K, pred):
     # Resolve o modelo e imprime o resultado
     opt = SolverFactory("glpk")
     instance = model.create_instance(file)
-    opt.solve(instance)
-
     instance.pprint()
+    opt.solve(instance)
+    instance.display()
 
     print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}")
     for s in instance.S:
