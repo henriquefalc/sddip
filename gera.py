@@ -1,4 +1,4 @@
-# Gera uma instância para o problema, nos formatos do SDDiP e do PDE
+# Gera uma instância para o problema, nos formatos do SDD(i)P e do PDE
 
 import sys
 from numpy import random
@@ -22,6 +22,12 @@ dMax = 50                       # demanda máxima de cada cenário
 def uniforme(a, b):
     return (b-a)*random.random() + a
 
+# Gera uma instância. Parâmetros:
+# id: identificador da instância
+# H: número de estágios
+# g: número de cenários por estágio (grau da árvore)
+# A: número de cargas já adquiridas
+# P: número de cargas que podem ser adquiridas
 def gera(id, H, g, A, P):
     def escreveSet(f, nome, valores, espacos=0):
         f.write(f"{' '*espacos}set {nome} :=")
@@ -32,10 +38,10 @@ def gera(id, H, g, A, P):
     def escreveParam(f, nome, valor, espacos=0):
         f.write(f"{' '*espacos}param {nome} := {valor};\n")
 
-    def escreveParamSet(f, nome, valores, espacos=0):
+    def escreveParamSet(f, nome, valores, espacos=0, offfset=1, decimais=2):
         f.write(f"{' '*espacos}param {nome} :=")
         for i in range(len(valores)):
-            f.write(f"\n{' '*espacos}    {i+1} %.2f" % valores[i])
+            f.write(f"\n{' '*espacos}    {i+offfset} %.{decimais}f" % valores[i])
         f.write(';\n')
 
     C = A + P
@@ -67,7 +73,7 @@ def gera(id, H, g, A, P):
     p = []
     p.append([1])
     for t in range(1, H):
-        p.append([0 for i in range(g)])
+        p.append([0]*g)
         falhou = True
         while falhou:
             falhou = False
@@ -79,9 +85,25 @@ def gera(id, H, g, A, P):
                     falhou = True
                     print(f"FALHOU: {p[t]}")
                     break
+
+    K = int((g**H - 1) / (g - 1))               # número de cenários
+    S = range(K)
+    pred = [-1]                                 # predecessor de cada cenário
+    stages = [1]                                # estágio de cada cenário
+    for k in range(1, K):
+        pred.append((k - 1) // g)
+        stages.append(stages[pred[k]] + 1)
+    pAbs = [p[0][0]]
+    for k in range(1, K):
+        pk = 1
+        k1 = k
+        while k1 != 0:
+            pk *= p[stages[k1]-1][(k1-1) % g]
+            k1 = pred[k1]
+        pAbs.append(pk)
     
-    # Escreve o arquivo para o SDDiP
-    f = open(f"sddip-{id}-{H}-{g}-{A}-{P}.dat", 'w')
+    # Escreve o arquivo para o SDDP/SDDiP
+    f = open(f"sddp-{H}-{g}-{A}-{P}-{id}.dat", 'w')
     escreveSet(f, 'C', range(1, C + 1))
     f.write('\n')
     escreveParamSet(f, 'q', q)
@@ -113,14 +135,26 @@ def gera(id, H, g, A, P):
             escreveParam(f, 's0', s0, 4)
         f.write('}\n')
     f.close()
-    
-    # Escreve o arquivo para o SDDiP
 
+    # Escreve o arquivo para o PDE
+    f = open(f"pde-{H}-{g}-{A}-{P}-{id}.dat", 'w')
+    escreveSet(f, 'C', range(1, C + 1))
+    escreveSet(f, 'P', range(A + 1, C + 1))
+    escreveSet(f, 'A1', A1)
+    escreveSet(f, 'A2', A2)
+    escreveSet(f, 'S', S)
+    f.write('\n')
+    escreveParamSet(f, 'q', q)
+    escreveParamSet(f, 'ca', ca)
+    escreveParamSet(f, 'cc', cc)
+    escreveParamSet(f, 'cp', cp)
+    escreveParam(f, 'sMin', sMin)
+    escreveParam(f, 'sMax', sMax)
+    escreveParam(f, 's0', s0)
+    escreveParamSet(f, 'd', [d[0][0]] + [d[stages[k]-1][(k-1) % g] for k in range(1, K)], offfset=0)
+    escreveParamSet(f, 'h', [h]*H)
+    escreveParamSet(f, 'p', pAbs, offfset=0, decimais=10)
+    f.close()
 
 if __name__ == '__main__':
-    id = int(sys.argv[1])       # identificador da instância
-    H = int(sys.argv[2])        # número de estágios
-    g = int(sys.argv[3])        # número de cenários por estágio (aridade da árvore)
-    A = int(sys.argv[4])        # número de cargas já adquiridas
-    P = int(sys.argv[5])        # número de cargas que podem ser adquiridas
-    gera(id, H, g, A, P)
+    gera(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
