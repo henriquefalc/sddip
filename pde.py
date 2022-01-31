@@ -6,14 +6,13 @@
 from pyomo.environ import *
 import sys
 
-def pde(file, K, pred):
-    # Estágio de cada cenário
-    stages = [1]
+def pde(file, H, g):
+    K = int((g**H - 1) / (g - 1))               # número de cenários
+    pred = [-1]                                 # predecessor de cada cenário
+    stages = [1]                                # estágio de cada cenário
     for k in range(1, K):
+        pred.append((k - 1) // g)
         stages.append(stages[pred[k]] + 1)
-    H = stages[K - 1]                               # número de estágios
-    print(stages)
-    print(H)
 
     model = AbstractModel("pde")
     
@@ -40,11 +39,11 @@ def pde(file, K, pred):
     # Variáveis
     model.s = Var(model.S, domain=NonNegativeReals, bounds=(model.sMin, model.sMax))    # estoque ao final de cada cenário
     model.u = Var(model.S, domain=NonNegativeReals)     # volume adquirido que chega em cada cenário
-    model.v = Var(model.P, model.S, domain=Binary)      # se a carga c é adquirida no cenário s
+    model.v = Var(model.P, model.S, domain=NonNegativeReals, bounds=(0, 1))     # se a carga c é adquirida no cenário s
     model.w = Var(model.S, domain=NonNegativeReals)     # volume cancelado que chegaria em cada cenário (só se aplica ao segundo estágio)
-    model.x = Var(model.A2, domain=Binary)              # se a carga c chegaria no segundo estágio e é cancelada
+    model.x = Var(model.A2, domain=NonNegativeReals, bounds=(0, 1)) # se a carga c chegaria no segundo estágio e é cancelada
     model.y = Var(model.S, domain=NonNegativeReals)     # volume adiado para cada cenário (só se aplica ao terceiro estágio)
-    model.z = Var(model.A2, domain=Binary)              # se a carga c chegaria no segundo estágio e é adiada para o terceiro
+    model.z = Var(model.A2, domain=NonNegativeReals, bounds=(0, 1)) # se a carga c chegaria no segundo estágio e é adiada para o terceiro
 
     # Função objetivo
     def objetivo(model):
@@ -101,20 +100,18 @@ def pde(file, K, pred):
     print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}")
     for s in instance.S:
         print(f"\nCenário {s}:\ns = {value(instance.s[s])}")
-        print(f"u = {value(instance.u[s])}")
-        print(f"v = {[value(instance.v[c, s]) for c in instance.P]}")
-        print(f"w = {value(instance.w[s])}")
+        if stages[s] > 1:
+            print(f"u = {value(instance.u[s])}")
+        if stages[s] < H:
+            print(f"v = {[value(instance.v[c, s]) for c in instance.P]}")
+        if stages[s] == 2:
+            print(f"w = {value(instance.w[s])}")
         if stages[s] == 1:
             print(f"x = {[value(instance.x[c]) for c in instance.A2]}")
-        print(f"y = {value(instance.y[s])}")
+        if stages[s] == 3:
+            print(f"y = {value(instance.y[s])}")
         if stages[s] == 1:
             print(f"z = {[value(instance.z[c]) for c in instance.A2]}")
 
 if __name__ == "__main__":
-    K = int(sys.argv[2])
-    pred = []
-    for k in range(K):
-        pred.append(int(sys.argv[k + 3]))
-    print(K)
-    print(pred)
-    pde(sys.argv[1], K, pred)
+    pde(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
