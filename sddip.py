@@ -11,7 +11,7 @@ from random import random
 EPSILON = 1e-5          # tolerância para os testes de otimalidade
 ZALPHA2 = 2.326         # valor de z alpha/2 para 98% de confiança
 L = 0                   # limite inferior para a função recurso
-Q = 1000                # penalidade das variáveis artificiais phi
+Q = 1e6                 # penalidade das variáveis artificiais phi
 
 def sddip(file, H, M):
     # Retorna o modelo para o estágio t
@@ -353,10 +353,8 @@ def sddip(file, H, M):
                 duais = piAtual[m]
             else:
                 resolveCenario(t + 1, m, s, LR=True)
-                #modelsLR[t+1].pprint()
-                #modelsLR[t+1].display()
                 duais = obtemDuais(t + 1)
-            print(f"duais = {duais}")
+            #print(f"duais = {duais}")
 
             sigma_e = 0
             for i in range(len(duais["cortesOtimalidade"])):
@@ -365,7 +363,6 @@ def sddip(file, H, M):
             e += models[t+1].p[s] * (duais["balanco"]*(models[t+1].d[s] - a[t+1]) + duais["limiteSMin"]*models[t+1].sMin +
                 duais["limiteSMax"]*models[t+1].sMax + sum(duais["limiteV"][d] for d in duais["limiteV"]) +
                 sum(duais["limiteX"][d] for d in duais["limiteX"]) + sum(duais["limiteZ2"][d] for d in duais["limiteZ2"]) + sigma_e)
-            #print(f"e += {models[t+1].p[s]} * ({duais['balanco']}*({models[t+1].d[s]} - {models[t+1].a}) + {duais['limiteSMin']}*{models[t+1].sMin} + {duais['limiteSMax']}*{models[t+1].sMax} + {sum(duais["limiteV"][d] for d in duais['limiteV'])} + {sum(duais["limiteV2"][d] for d in duais['limiteV2'])} + {sigma_e}) = {models[t+1].p[s] * (duais['balanco']*(models[t+1].d[s] - models[t+1].a) + duais['limiteSMin']*models[t+1].sMin + duais['limiteSMax']*models[t+1].sMax + sum(duais["limiteV"][d] for d in duais['limiteV']) + sum(duais["limiteV2"][d] for d in duais['limiteV2']) + sigma_e)}")
             Es += models[t+1].p[s] * duais["balanco"]
             for c in Ev:
                 Ev[c] -= models[t+1].p[s] * models[t].q[c] * duais["aquisicao"]
@@ -408,14 +405,15 @@ def sddip(file, H, M):
         # Atualiza lower bound
         LBant = LB
         resolveCenario(0, 0, 0)
+        #models[0].pprint()
         #models[0].display()
         LB = value(models[0].OBJ)
+        print(f"\nLB = {LB}, UB = {UB}, LBant = {LBant}")
         if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério para B ou B+I
-        #if UB - LB < EPSILON:               # critério para I
             break                           # ótimo encontrado
 
         iter += 1
-        #input(f"\n*** ITERAÇÃO {iter} - LB = {LB}, UB = {UB}, LBant = {LBant}***")
+        print(f"\n*** ITERAÇÃO {iter} ***")
 
         # Amostragem - descomentar para gerar uma amostra por iteração
         #amostra = geraAmostra()
@@ -459,9 +457,8 @@ def sddip(file, H, M):
         #for m in range(M):
         #    somavar += prob[m] * (obj[m] - media)**2
         #UB = media + ZALPHA2 * (somavar / (M * somaprob))**0.5
-        #input(f"\nLB = {LB}, UB = {UB}")
-        #if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério para B ou B+I
-        if UB - LB < EPSILON:               # critério para I
+        print(f"\nLB = {LB}, UB = {UB}, LBant = {LBant}")
+        if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério para B ou B+I
             break                           # ótimo encontrado
 
         print("\n* PASSO BACKWARD *")
@@ -469,20 +466,15 @@ def sddip(file, H, M):
         for m in range(M):
             if cenarioRepetido(m, H - 2) == -1:
                 adicionaCorteBenders(m, H - 2)
-                #adicionaCorteBendersFortalecido(m, H - 2)
 
         # Demais estágios
         for t in range(H - 3, 0, -1):
             for m in range(M):
                 if cenarioRepetido(m, t) == -1:
                     adicionaCorteBenders(m, t)
-                    #adicionaCorteLShapedInteiro(m, t)
-                    #adicionaCorteBendersFortalecido(m, t)
                     
         # Primeiro estágio
         adicionaCorteBenders(0, 0)
-        #adicionaCorteLShapedInteiro(0, 0)
-        #adicionaCorteBendersFortalecido(0, 0)
     
     print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {UB}")
     print(f"gap = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
