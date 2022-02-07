@@ -3,9 +3,10 @@
 # * a carga encomendada chega em um estágio
 # * a carga pré-adquirida pode ser cancelada ou adiada com um estágio de antecedência. Se adiada, chega em um estágio.
 
+from curses import nonl
 from pyomo.environ import *
 from pyomo.opt import TerminationCondition
-import sys
+import sys, time, os
 from random import random
 
 EPSILON = 1e-5          # tolerância para os testes de otimalidade
@@ -50,12 +51,12 @@ def sddp(file, H, M):
             model.phi1 = Var(domain=NonNegativeReals)
             model.phi2 = Var(domain=NonNegativeReals)
         if t < H - 1:           # até o penúltimo estágio
-            model.v = Var(model.P, domain=NonNegativeReals)         # fração da carga c adquirida para chegar no próximo estágio
-            model.x = Var(model.A, domain=NonNegativeReals)         # fração da carga c que chegaria no próximo estágio e é cancelada
+            model.v = Var(model.P, domain=NonNegativeReals)         # fração da carga c adquirida para chegar em t+1
+            model.x = Var(model.A, domain=NonNegativeReals)         # fração da carga c que chegaria em t+1 e é cancelada
             if t < H - 2:
-                model.z2 = Var(model.A, domain=NonNegativeReals)    # fração da carga c que chegaria no próximo estágio e é adiada
+                model.z2 = Var(model.A, domain=NonNegativeReals)    # fração da carga c que chegaria em t+1 e é adiada
             if t > 0:
-                model.z1 = Var(model.AAnt, domain=NonNegativeReals) # fração da carga c que chegaria neste estágio e foi adiada para o próximo
+                model.z1 = Var(model.AAnt, domain=NonNegativeReals) # fração da carga c que chegaria em t e foi adiada para t+1
             model.theta = Var(bounds=(L, None))
 
         # Expressões (termos que variam a cada iteração)
@@ -99,7 +100,8 @@ def sddp(file, H, M):
                     model.dk + model.w + model.s + model.phi2
         elif t == 1:            # segundo estágio
             def balanco(model):
-                return sum(model.q[c] for c in model.AAnt) + model.sAnt + model.u + model.phi1 == model.dk + model.w + model.s + model.phi2
+                return sum(model.q[c] for c in model.AAnt) + model.sAnt + model.u + model.phi1 ==\
+                    model.dk + model.w + model.s + model.phi2
         else:                   # primeiro estágio
             def balanco(model):
                 return sum(model.q[c] for c in model.AAnt) + model.s0 == model.d[model.S.at(1)] + model.s
@@ -149,56 +151,59 @@ def sddp(file, H, M):
     models = [criaModelo(t) for t in range(H)]
     a = [sum(models[t].q[c] for c in models[t].AAnt) for t in range(H)]    # volume adquirido anteriormente que chega em cada estágio
 
+    # Retorna uma lista com todos os cenários possíveis (sem amostragem)
+    def geraTodosCenarios():
+        def geraPerm(t):
+            if t == 0:
+                return [[s for s in models[0].S]]
+            perms = geraPerm(t - 1)
+            res = []
+            for perm in perms:
+                for s in models[t].S:
+                    res.append(perm + [s])
+            return res
+        return geraPerm(H - 1)
+    
     # Retorna uma lista de M cenários amostrados aleatoriamente
     def geraAmostra():
-        if M < 30:      # menos de 30 cenários: retorna todos os cenários possíveis (sem amostragem)
-            def geraPerm(t):
-                if t == 0:
-                    return [[s for s in models[0].S]]
-                perms = geraPerm(t - 1)
-                res = []
-                for perm in perms:
-                    for s in models[t].S:
-                        res.append(perm + [s])
-                return res
-            return geraPerm(H - 1)
-
-        else:
-            amostra = []
-            m = 0
-            while m < M:
-                print("Começando novo a")
-                a = []
-                for t in range(H):
-                    r = random()
-                    p = 0
-                    print(f"Sorteou {r}")
-                    for s in models[t].S:
-                        p += models[t].p[s]
-                        if p >= r:
-                            a.append(s)
-                            break
-                    print(f"a = {a}")
-                    
-                # Verifica se essa amostra já não foi gerada (para não repetir)
-                existe = False
-                for a1 in amostra:
-                    existe = True
-                    for t in range(H):
-                        if a1[t] != a[t]:
-                            existe = False
-                            break
-                    if existe:
-                        print("Já existe...")
+        amostra = []
+        m = 0
+        while m < M:
+            #print("Começando novo a")
+            a = []
+            for t in range(H):
+                r = random()
+                p = 0
+                #print(f"Sorteou {r}")
+                for s in models[t].S:
+                    p += models[t].p[s]
+                    if p >= r:
+                        a.append(s)
                         break
-                if not existe:
-                    amostra.append(a)
-                    m += 1
-                    print(f"Adicionou. amostra = {amostra}")
-            return amostra
+                #print(f"a = {a}")
+                
+            # Verifica se essa amostra já não foi gerada (para não repetir)
+            existe = False
+            for a1 in amostra:
+                existe = True
+                for t in range(H):
+                    if a1[t] != a[t]:
+                        existe = False
+                        break
+                if existe:
+                    #print("Já existe...")
+                    break
+            if not existe:
+                amostra.append(a)
+                m += 1
+                #print(f"Adicionou. amostra = {amostra}")
+        #input(f"Ta aí suas amostras juliette {amostra}")
+        return amostra
 
-    amostra = geraAmostra()     # para amostragem por iteração, passar isso para dentro do loop
-    M = len(amostra)
+    amostragem = M > 0      # se pediu 0 amostras, gera todos os cenários possíveis
+    if not amostragem:
+        amostra = geraTodosCenarios()
+        M = len(amostra)
     
     # Soluções atuais de cada cenário amostrado
     sAtual = [[-1]*H for m in range(M)]
@@ -212,6 +217,12 @@ def sddp(file, H, M):
 
     # Termos independentes dos cortes gerados ao longo do algoritmo, para cada subproblema
     eLists = [[] for t in range(H)]
+    EsLists = [[] for t in range(H)]
+    EvLists = [[] for t in range(H)]
+    ExLists = [[] for t in range(H)]
+    Ez2Lists = [[] for t in range(H)]
+    Ez1Lists = [[] for t in range(H)]
+    cortes_repetidos = 0
     
     # Resolve o problema para o cenário s do estágio t, usando a solução atual do estágio t-1 da amostra m.
     # Se s == None, é considerado o cenário do estágio t de m
@@ -219,7 +230,7 @@ def sddp(file, H, M):
         if s == None:
             s = amostra[m][t]
 
-        print(f"\nResolvendo problema ({t}, {s})")
+        #print(f"\nResolvendo problema ({t}, {s})")
         if t > 0:
             # Atualiza as expressões dos estágios anteriores
             models[t].sAnt.set_value(sAtual[m][t-1])
@@ -267,7 +278,7 @@ def sddp(file, H, M):
         if t == H - 1:
             piAtual[m] = obtemDuais(t)
         
-        imprimeSolucao(t)
+        #imprimeSolucao(t)
     
     # Retorna a solução dual do estágio t
     def obtemDuais(t):
@@ -297,27 +308,54 @@ def sddp(file, H, M):
                 z1Atual[m2][t] = {c: z1Atual[m1][t][c] for c in z1Atual[m1][t]}
 
     def imprimeSolucao(t):
-        print(f"Solução do estágio {t}: z* = {value(models[t].OBJ)}, s = {value(models[t].s)}", end="")
+        f.write(f"Solução do estágio {t}: z* = {value(models[t].OBJ)}, s = {value(models[t].s)}")
         if t > 0:
-            print(f", u = {value(models[t].u)}, w = {value(models[t].w)}", end="")
+            f.write(f", u = {value(models[t].u)}, w = {value(models[t].w)}")
             if t > 1:
-                print(f", y = {value(models[t].y)}", end="")
-            print(f", phi1 = {value(models[t].phi1)}, phi2 = {value(models[t].phi2)}", end="")
+                f.write(f", y = {value(models[t].y)}")
+            f.write(f", phi1 = {value(models[t].phi1)}, phi2 = {value(models[t].phi2)}")
         if t < H - 1:       # até o penúltimo estágio
-            print(f", theta = {value(models[t].theta)}")
-            print(f"v = {[value(models[t].v[c]) for c in models[t].P]}")
-            print(f"x = {[value(models[t].x[c]) for c in models[t].A]}")
+            f.write(f", theta = {value(models[t].theta)}\n")
+            f.write(f"v = {[value(models[t].v[c]) for c in models[t].P]}\n")
+            f.write(f"x = {[value(models[t].x[c]) for c in models[t].A]}\n")
             if t < H - 2:
-                print(f"z2 = {[value(models[t].z2[c]) for c in models[t].A]}")
+                f.write(f"z2 = {[value(models[t].z2[c]) for c in models[t].A]}\n")
             if t > 0:
-                print(f"z1 = {[value(models[t].z1[c]) for c in models[t].AAnt]}")
+                f.write(f"z1 = {[value(models[t].z1[c]) for c in models[t].AAnt]}\n")
         else:
-            print()
+            f.write('\n')
+    
+    def equals(x, y):
+        return abs(x - y) < EPSILON
+    
+    # Verifica se já foi adicionado um corte ao problema do estágio t com os mesmos coeficientes dados
+    def corteExiste(t, Es, Ev, Ex, Ez2, Ez1, e):
+        for i in range(len(eLists[t]) - 1, -1, -1):
+            if equals(Es, EsLists[t][i]) and equals(e, eLists[t][i]):
+                for c in Ev:
+                    if not equals(Ev[c], EvLists[t][i][c]):
+                        break
+                else:
+                    for c in Ex:
+                        if not equals(Ex[c], ExLists[t][i][c]):
+                            break
+                    else:
+                        for c in Ez2:
+                            if not equals(Ez2[c], Ez2Lists[t][i][c]):
+                                break
+                        else:
+                            for c in Ez1:
+                                if not equals(Ez1[c], Ez1Lists[t][i][c]):
+                                    break
+                            else:
+                                #print(f"Corte já existe pro {t}: e = {e}, Es = {Es}, Ev = {Ev}, Ex = {Ex}, Ez2 = {Ez2}, Ez1 = {Ez1}")
+                                return True
+        return False
     
     # Adiciona um corte de otimalidade de Benders agregado ao problema do estágio t, considerando a solução atual da amostra m
     # para este estágio
     def adicionaCorteBenders(m, t):
-        print(f"\nAdiciona corte de Benders para o estágio {t}, amostra {m} = {amostra[m]}")
+        #print(f"\nAdiciona corte de Benders para o estágio {t}, amostra {m} = {amostra[m]}")
         e = 0
         Es = 0
         Ev = {c: 0 for c in models[t].P}
@@ -351,46 +389,69 @@ def sddp(file, H, M):
             for c in Ez1:
                 Ez1[c] -= models[t+1].p[s] * models[t].q[c] * duais["adiamento1"]
 
-        models[t].cortesOtimalidade.add(expr=Es*models[t].s +
-            sum(Ev[c]*models[t].v[c] for c in Ev) +
-            sum(Ex[c]*models[t].x[c] for c in Ex) +
-            sum(Ez2[c]*models[t].z2[c] for c in Ez2) +
-            sum(Ez1[c]*models[t].z1[c] for c in Ez1) + models[t].theta >= e)
-        print(f"Corte de Benders para o estágio {t}: theta >= {e} - {Es}s - (", end="")
-        for c in Ev:
-            print(f"{Ev[c]}v{c} + ", end="")
-        print(") - (", end="")
-        for c in Ex:
-            print(f"{Ex[c]}x{c} + ", end="")
-        print(") - (", end="")
-        for c in Ez2:
-            print(f"{Ez2[c]}z2,{c} + ", end="")
-        print(") - (", end="")
-        for c in Ez1:
-            print(f"{Ez1[c]}z1,{c} + ", end="")
-        print(")")
-        eLists[t].append(e)
+        if corteExiste(t, Es, Ev, Ex, Ez2, Ez1, e):
+            nonlocal cortes_repetidos
+            cortes_repetidos += 1
+        else:
+            models[t].cortesOtimalidade.add(expr=Es*models[t].s +
+                sum(Ev[c]*models[t].v[c] for c in Ev) +
+                sum(Ex[c]*models[t].x[c] for c in Ex) +
+                sum(Ez2[c]*models[t].z2[c] for c in Ez2) +
+                sum(Ez1[c]*models[t].z1[c] for c in Ez1) + models[t].theta >= e)
+            #print(f"Corte de Benders para o estágio {t}: theta >= {e} - {Es}s - (", end="")
+            #for c in Ev:
+            #    print(f"{Ev[c]}v{c} + ", end="")
+            #print(") - (", end="")
+            #for c in Ex:
+            #    print(f"{Ex[c]}x{c} + ", end="")
+            #print(") - (", end="")
+            #for c in Ez2:
+            #    print(f"{Ez2[c]}z2,{c} + ", end="")
+            #print(") - (", end="")
+            #for c in Ez1:
+            #    print(f"{Ez1[c]}z1,{c} + ", end="")
+            #print(")")
+            eLists[t].append(e)
+            EsLists[t].append(Es)
+            EvLists[t].append(Ev)
+            ExLists[t].append(Ex)
+            Ez2Lists[t].append(Ez2)
+            Ez1Lists[t].append(Ez1)
     
     LB = LBant = -1e9
     UB = 1e9
+
+    # Critério de parada do algoritmo
+    if amostragem:
+        def criterioParada():       # critério estocástico
+            return LB - LBant < EPSILON
+    else:
+        def criterioParada():       # critério exato
+            return UB - LB < EPSILON
+
     iter = 0
+    f = open(f"saida/{os.path.basename(file)}-M{M}.txt", 'w')
+    start = time.time()
     while True:
         # Atualiza lower bound
         LBant = LB
-        resolveCenario(0, 0, 0)
+        results = resolveCenario(0, 0, 0)
+        if results.solver.termination_condition == TerminationCondition.infeasible:
+            # Este trecho não será alcançado pois o problema é sempre viável
+            print("Problema inviável!!!")
+            return
         #models[0].pprint()
         #models[0].display()
         LB = value(models[0].OBJ)
-        print(f"\nLB = {LB}, UB = {UB}, LBant = {LBant}")
-        if UB - LB < EPSILON:               # critério exato
-        #if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério estocástico
+        #print(f"\nLB = {LB}, UB = {UB}, LBant = {LBant}")
+        if criterioParada():
             break                           # ótimo encontrado
 
         iter += 1
-        print(f"\n*** ITERAÇÃO {iter} ***")
+        print(f"LB = {LB}, UB = {UB}\n*** ITERAÇÃO {iter} ***")
 
-        # Amostragem - descomentar para gerar uma amostra por iteração
-        #amostra = geraAmostra()
+        if amostragem:
+            amostra = geraAmostra()
 
         print("\n* PASSO FORWARD *\n")
         armazenaSolucao(0, 0)
@@ -399,7 +460,7 @@ def sddp(file, H, M):
         obj = [0]*M
         prob = [1]*M
         for m in range(M):
-            print(f"\nAmostra {m} - {amostra[m]}")
+            #print(f"\nAmostra {m} - {amostra[m]}")
             if m > 0:
                 copiaSolucao(0, 0, m)
             obj[m] = value(models[0].OBJ) - value(models[0].theta)
@@ -424,17 +485,12 @@ def sddp(file, H, M):
         
         # Atualiza upper bound
         media /= somaprob
-        if media < UB:
-            UB = media
-        # Descomentar este trecho para usar upper bound estatístico
-        desvio = (sum(prob[m] * (obj[m] - media)**2 for m in range(M)) / (M * somaprob))**0.5
-        #UB = media + ZALPHA2 * desvio
-        print(f"\nLB = {LB}, UB = {UB}, LBant = {LBant}")
-        #if (LB - LBant < EPSILON) or (UB - LB < EPSILON):  # critério estocástico
-        if UB - LB < EPSILON:               # critério exato
+        desvio = (sum(prob[m] * (obj[m] - media)**2 for m in range(M)) / (M * somaprob))**0.5 if amostragem else 0
+        UB = media + ZALPHA2 * desvio
+        if criterioParada():
             break                           # ótimo encontrado
 
-        print("\n* PASSO BACKWARD *")
+        print(f"\nLB = {LB}, UB = {UB}\n* PASSO BACKWARD *")
         # Demais estágios
         for t in range(H - 2, 0, -1):
             for m in range(M):
@@ -444,19 +500,61 @@ def sddp(file, H, M):
         # Primeiro estágio
         adicionaCorteBenders(0, 0)
     
-    print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {UB}")
-    print(f"gap = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
-    print(f"Iterações: {iter}")
+    f.write(f"***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nTempo de execução: {time.time() - start}s")
+    f.write(f"z* estocástico = {UB}\ngap estocástico = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
+    f.write(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}; ")
+    f.write(f"total de cortes: {sum(len(eList) for eList in eLists)}; cortes repetidos (não adicionados): {cortes_repetidos}")
+    print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nTempo de execução: {time.time() - start}s")
+    print(f"z* estocástico = {UB}\ngap estocástico = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
+    print(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}; ", end="")
+    print(f"total de cortes: {sum(len(eList) for eList in eLists)}; cortes repetidos (não adicionados): {cortes_repetidos}")
+
+    # Resolve o problema exato para obter uma solução viável
+    amostra = geraTodosCenarios()
+    M = len(amostra)
+    sAtual = [[-1]*H for m in range(M)]
+    vAtual = [[{} for t in range(H - 1)] for m in range(M)]
+    xAtual = [[{} for t in range(H - 1)] for m in range(M)]
+    z1Atual = [[{} for t in range(H - 1)] for m in range(M)]
+    z2Atual = [[{} for t in range(H - 2)] for m in range(M)]
+    piAtual = [{} for m in range(M)]
+    UBexato = value(models[0].OBJ) - value(models[0].theta)
+    for m in range(M):
+        sAtual[m][0] = value(models[0].s)
+        vAtual[m][0] = {c: value(models[0].v[c]) for c in models[0].P}
+        xAtual[m][0] = {c: value(models[0].x[c]) for c in models[0].A}
+        z2Atual[m][0] = {c: value(models[0].z2[c]) for c in models[0].A}
+        for t in range(1, H):
+            m1 = cenarioRepetido(m, t)
+            if m1 == -1:        # cenário inédito
+                results = resolveCenario(t, m)
+                armazenaSolucao(m, t)
+                p = 1
+                for t1 in range(1, t + 1):
+                    p *= models[t1].p[amostra[m][t1]]
+                if t < H - 1:
+                    UBexato += p * (value(models[t].OBJ) - value(models[t].theta))
+                else:
+                    UBexato += p * value(models[t].OBJ)
+            else:               # cenário repetido
+                copiaSolucao(t, m1, m)
+
+    print(f"\nz* = {UBexato}\ngap = {UBexato} - {LB} = {UBexato - LB} ({(UBexato - LB)*100 / LB})%")
     print(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}")
     print(f"x = {[value(models[0].x[c]) for c in models[0].A]}")
-    input(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}")
+    print(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}")
+    f.write(f"\nz* = {UBexato}\ngap = {UBexato} - {LB} = {UBexato - LB} ({(UBexato - LB)*100 / LB})%")
+    f.write(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}\n")
+    f.write(f"x = {[value(models[0].x[c]) for c in models[0].A]}\n")
+    f.write(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}\n")
     for t in range(1, H):
-        print(f"\nEstágio {t}:")
+        f.write(f"\nEstágio {t}:\n")
         for m in range(M):
             if cenarioRepetido(m, t) == -1:
-                print(f"\nAmostra {m}: {amostra[m]}", end="")
+                f.write(f"\nAmostra {m}: {amostra[m]}")
                 resolveCenario(t, m)
                 imprimeSolucao(t)
+    f.close()
 
 # Modo de execução:
 # python sddip.py <arquivo> <H> <M>

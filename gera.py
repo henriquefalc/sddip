@@ -61,7 +61,7 @@ def gera(id, H, g, A, P):
         d = [[uniforme(dMin, dMax) for i in range(g)] for t in range(H)]
         d[0] = [d[0][0]]
 
-        viavel = q0 + s0 >= d[0][0]
+        viavel = (q0 + s0 >= d[0][0] + sMin) and (q0 + s0 <= d[0][0] + sMax)
 
     ca = [uniforme(caMin, caMax) for c in range(C)]
     cc = [uniforme(ccMin, ccMax) for c in range(C)]
@@ -86,7 +86,7 @@ def gera(id, H, g, A, P):
                     print(f"FALHOU: {p[t]}")
                     break
 
-    K = int((g**H - 1) / (g - 1))               # número de cenários
+    K = int((g**H - 1) // (g - 1))              # número de cenários
     S = range(K)
     pred = [-1]                                 # predecessor de cada cenário
     stages = [1]                                # estágio de cada cenário
@@ -103,7 +103,7 @@ def gera(id, H, g, A, P):
         pAbs.append(pk)
     
     # Escreve o arquivo para o SDDP/SDDiP
-    f = open(f"sddp-{H}-{g}-{A}-{P}-{id}.dat", 'w')
+    f = open(f"instancias/sddp-{H}-{g}-{A}-{P}-{id}.dat", 'w')
     escreveSet(f, 'C', range(1, C + 1))
     f.write('\n')
     escreveParamSet(f, 'q', q)
@@ -128,7 +128,7 @@ def gera(id, H, g, A, P):
             escreveSet(f, 'PAnt', range(A + 1, C + 1), 4)
         escreveSet(f, 'S', [1] if t == 0 else range(1, g + 1), 4)
         f.write('\n')
-        escreveParamSet(f, 'p', p[t], 4)
+        escreveParamSet(f, 'p', p[t], 4, decimais=10)
         escreveParamSet(f, 'd', d[t], 4)
         escreveParam(f, 'h', h, 4)
         if t == 0:
@@ -137,7 +137,7 @@ def gera(id, H, g, A, P):
     f.close()
 
     # Escreve o arquivo para o PDE
-    f = open(f"pde-{H}-{g}-{A}-{P}-{id}.dat", 'w')
+    f = open(f"instancias/pde-{H}-{g}-{A}-{P}-{id}.dat", 'w')
     escreveSet(f, 'C', range(1, C + 1))
     escreveSet(f, 'P', range(A + 1, C + 1))
     escreveSet(f, 'A1', A1)

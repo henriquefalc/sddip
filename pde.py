@@ -4,7 +4,7 @@
 # * todas as cargas em A podem ser canceladas ou adiadas com um estágio de antecedência. Se adiadas, chegam em um estágio.
 
 from pyomo.environ import *
-import sys
+import sys, time, os
 
 def pde(file, H, g):
     K = int((g**H - 1) / (g - 1))               # número de cenários
@@ -13,6 +13,8 @@ def pde(file, H, g):
     for k in range(1, K):
         pred.append((k - 1) // g)
         stages.append(stages[pred[k]] + 1)
+    
+    start = time.time()
 
     model = AbstractModel("pde")
     
@@ -93,25 +95,27 @@ def pde(file, H, g):
     # Resolve o modelo e imprime o resultado
     opt = SolverFactory("glpk")
     instance = model.create_instance(file)
-    instance.pprint()
+    #instance.pprint()
     opt.solve(instance)
-    instance.display()
+    #instance.display()
 
-    print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}")
+    print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}\nTempo de execução: {time.time() - start}s")
+    f = open(f"saida/{os.path.basename(file)}.txt", 'w')
+    f.write(f"***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}\nTempo de execução: {time.time() - start}s\n")
     for s in instance.S:
-        print(f"\nCenário {s}:\ns = {value(instance.s[s])}")
+        f.write(f"\nCenário {s}:\ns = {value(instance.s[s])}\n")
         if stages[s] > 1:
-            print(f"u = {value(instance.u[s])}")
+            f.write(f"u = {value(instance.u[s])}\n")
         if stages[s] < H:
-            print(f"v = {[value(instance.v[c, s]) for c in instance.P]}")
+            f.write(f"v = {[value(instance.v[c, s]) for c in instance.P]}\n")
         if stages[s] == 2:
-            print(f"w = {value(instance.w[s])}")
+            f.write(f"w = {value(instance.w[s])}\n")
         if stages[s] == 1:
-            print(f"x = {[value(instance.x[c]) for c in instance.A2]}")
+            f.write(f"x = {[value(instance.x[c]) for c in instance.A2]}\n")
         if stages[s] == 3:
-            print(f"y = {value(instance.y[s])}")
+            f.write(f"y = {value(instance.y[s])}\n")
         if stages[s] == 1:
-            print(f"z = {[value(instance.z[c]) for c in instance.A2]}")
+            f.write(f"z = {[value(instance.z[c]) for c in instance.A2]}\n")
 
 if __name__ == "__main__":
     pde(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
