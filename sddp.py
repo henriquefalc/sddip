@@ -500,7 +500,7 @@ def sddp(file, H, M):
         # Primeiro estágio
         adicionaCorteBenders(0, 0)
     
-    f.write(f"***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nTempo de execução: {time.time() - start}s")
+    f.write(f"***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nTempo de execução: {time.time() - start}s\n")
     f.write(f"z* estocástico = {UB}\ngap estocástico = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
     f.write(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}; ")
     f.write(f"total de cortes: {sum(len(eList) for eList in eLists)}; cortes repetidos (não adicionados): {cortes_repetidos}")

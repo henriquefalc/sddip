@@ -6,6 +6,8 @@
 from pyomo.environ import *
 import sys, time, os
 
+TIME_LIMIT = 3600                               # limite de tempo em segundos
+
 def pde(file, H, g):
     K = int((g**H - 1) / (g - 1))               # número de cenários
     pred = [-1]                                 # predecessor de cada cenário
@@ -14,7 +16,7 @@ def pde(file, H, g):
         pred.append((k - 1) // g)
         stages.append(stages[pred[k]] + 1)
     
-    start = time.time()
+    start_time = time.time()
 
     model = AbstractModel("pde")
     
@@ -93,15 +95,25 @@ def pde(file, H, g):
     model.cancelamentoAdiamento = Constraint(model.A2, rule=cancelamentoAdiamento)
 
     # Resolve o modelo e imprime o resultado
-    opt = SolverFactory("glpk")
-    instance = model.create_instance(file)
+    print("Criando instância")
+    opt = SolverFactory("cplex")
+    instance = model.create_instance(file, report_timing=True)
+    build_time = time.time()
+    if build_time - start_time > TIME_LIMIT:
+        print("Time limit alcançado antes de começar a resolver!")
+        return
     #instance.pprint()
-    opt.solve(instance)
+    print("Resolvendo")
+    opt.options['timelimit'] = TIME_LIMIT
+    opt.solve(instance, tee=True)
+    solution_time = time.time()
     #instance.display()
 
-    print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}\nTempo de execução: {time.time() - start}s")
+    print(f"\n\n***FIM DA EXECUÇÃO***\n\nz* = {value(instance.OBJ)}")
+    print(f"Tempo de execução: {solution_time - start_time}s - Construção: {build_time - start_time}s; Solução: {solution_time - build_time}s")
     f = open(f"saida/{os.path.basename(file)}.txt", 'w')
-    f.write(f"***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nz* = {value(instance.OBJ)}\nTempo de execução: {time.time() - start}s\n")
+    f.write(f"***FIM DA EXECUÇÃO***\n\nz* = {value(instance.OBJ)}\n")
+    f.write(f"Tempo de execução: {solution_time - start_time}s - Construção: {build_time - start_time}s; Solução: {solution_time - build_time}s\n")
     for s in instance.S:
         f.write(f"\nCenário {s}:\ns = {value(instance.s[s])}\n")
         if stages[s] > 1:
