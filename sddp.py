@@ -3,7 +3,6 @@
 # * a carga encomendada chega em um estágio
 # * a carga pré-adquirida pode ser cancelada ou adiada com um estágio de antecedência. Se adiada, chega em um estágio.
 
-from curses import nonl
 from pyomo.environ import *
 from pyomo.opt import TerminationCondition
 import sys, time, os
@@ -147,7 +146,7 @@ def sddp(file, H, M):
         return model.create_instance(file, namespace=f"t{t}")
 
     # Cria os modelos
-    opt = SolverFactory("glpk")
+    opt = SolverFactory("cplex")
     models = [criaModelo(t) for t in range(H)]
     a = [sum(models[t].q[c] for c in models[t].AAnt) for t in range(H)]    # volume adquirido anteriormente que chega em cada estágio
 
@@ -169,18 +168,15 @@ def sddp(file, H, M):
         amostra = []
         m = 0
         while m < M:
-            #print("Começando novo a")
             a = []
             for t in range(H):
                 r = random()
                 p = 0
-                #print(f"Sorteou {r}")
                 for s in models[t].S:
                     p += models[t].p[s]
                     if p >= r:
                         a.append(s)
                         break
-                #print(f"a = {a}")
                 
             # Verifica se essa amostra já não foi gerada (para não repetir)
             existe = False
@@ -191,12 +187,10 @@ def sddp(file, H, M):
                         existe = False
                         break
                 if existe:
-                    #print("Já existe...")
                     break
             if not existe:
                 amostra.append(a)
                 m += 1
-                #print(f"Adicionou. amostra = {amostra}")
         #input(f"Ta aí suas amostras juliette {amostra}")
         return amostra
 
@@ -325,6 +319,47 @@ def sddp(file, H, M):
         else:
             f.write('\n')
     
+    # Resolve o problema para todos os cenários para obter uma solução viável
+    def obtemSolucaoViavel():
+        nonlocal amostra, sAtual, vAtual, xAtual, z1Atual, z2Atual, piAtual
+        amostra = geraTodosCenarios()
+        M = len(amostra)
+        sAtual = [[-1]*H for m in range(M)]
+        vAtual = [[{} for t in range(H - 1)] for m in range(M)]
+        xAtual = [[{} for t in range(H - 1)] for m in range(M)]
+        z1Atual = [[{} for t in range(H - 1)] for m in range(M)]
+        z2Atual = [[{} for t in range(H - 2)] for m in range(M)]
+        piAtual = [{} for m in range(M)]
+        UBexato = value(models[0].OBJ) - value(models[0].theta)
+        for m in range(M):
+            sAtual[m][0] = value(models[0].s)
+            vAtual[m][0] = {c: value(models[0].v[c]) for c in models[0].P}
+            xAtual[m][0] = {c: value(models[0].x[c]) for c in models[0].A}
+            z2Atual[m][0] = {c: value(models[0].z2[c]) for c in models[0].A}
+            for t in range(1, H):
+                m1 = cenarioRepetido(m, t)
+                if m1 == -1:        # cenário inédito
+                    resolveCenario(t, m)
+                    armazenaSolucao(m, t)
+                    p = 1
+                    for t1 in range(1, t + 1):
+                        p *= models[t1].p[amostra[m][t1]]
+                    if t < H - 1:
+                        UBexato += p * (value(models[t].OBJ) - value(models[t].theta))
+                    else:
+                        UBexato += p * value(models[t].OBJ)
+                else:               # cenário repetido
+                    copiaSolucao(t, m1, m)
+
+        print(f"\n\nz* exato = {UBexato}\ngap exato = {UBexato} - {LB} = {UBexato - LB} ({(UBexato - LB)*100 / LB})%")
+        print(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}")
+        print(f"x = {[value(models[0].x[c]) for c in models[0].A]}")
+        print(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}")
+        f.write(f"\nz* exato = {UBexato}\ngap exato = {UBexato} - {LB} = {UBexato - LB} ({(UBexato - LB)*100 / LB})%")
+        f.write(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}\n")
+        f.write(f"x = {[value(models[0].x[c]) for c in models[0].A]}\n")
+        f.write(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}\n")
+    
     def equals(x, y):
         return abs(x - y) < EPSILON
     
@@ -348,14 +383,12 @@ def sddp(file, H, M):
                                 if not equals(Ez1[c], Ez1Lists[t][i][c]):
                                     break
                             else:
-                                #print(f"Corte já existe pro {t}: e = {e}, Es = {Es}, Ev = {Ev}, Ex = {Ex}, Ez2 = {Ez2}, Ez1 = {Ez1}")
                                 return True
         return False
     
     # Adiciona um corte de otimalidade de Benders agregado ao problema do estágio t, considerando a solução atual da amostra m
     # para este estágio
     def adicionaCorteBenders(m, t):
-        #print(f"\nAdiciona corte de Benders para o estágio {t}, amostra {m} = {amostra[m]}")
         e = 0
         Es = 0
         Ev = {c: 0 for c in models[t].P}
@@ -372,10 +405,8 @@ def sddp(file, H, M):
             else:
                 resolveCenario(t + 1, m, s)
                 duais = obtemDuais(t + 1)
-            #print(f"duais = {duais}")
 
             sigma_e = sum(duais["cortesOtimalidade"][i] * eLists[t+1][i] for i in range(len(duais["cortesOtimalidade"])))
-            #print(f"sigma_e = {sigma_e}")
             e += models[t+1].p[s] * (duais["balanco"]*(models[t+1].d[s] - a[t+1]) + duais["limiteSMin"]*models[t+1].sMin +
                 duais["limiteSMax"]*models[t+1].sMax + sum(duais["limiteV"][d] for d in duais["limiteV"]) +
                 sum(duais["limiteX"][d] for d in duais["limiteX"]) + sum(duais["limiteZ2"][d] for d in duais["limiteZ2"]) + sigma_e)
@@ -430,7 +461,7 @@ def sddp(file, H, M):
             return UB - LB < EPSILON
 
     iter = 0
-    f = open(f"saida/{os.path.basename(file)}-M{M}.txt", 'w')
+    f = open(f"{os.path.basename(file)}-M{M}.txt", 'w')
     start = time.time()
     while True:
         # Atualiza lower bound
@@ -440,15 +471,12 @@ def sddp(file, H, M):
             # Este trecho não será alcançado pois o problema é sempre viável
             print("Problema inviável!!!")
             return
-        #models[0].pprint()
-        #models[0].display()
         LB = value(models[0].OBJ)
-        #print(f"\nLB = {LB}, UB = {UB}, LBant = {LBant}")
         if criterioParada():
             break                           # ótimo encontrado
 
         iter += 1
-        print(f"LB = {LB}, UB = {UB}\n*** ITERAÇÃO {iter} ***")
+        print(f"LB = {LB}, UB = {UB}\n\n*** ITERAÇÃO {iter} ***")
 
         if amostragem:
             amostra = geraAmostra()
@@ -488,78 +516,37 @@ def sddp(file, H, M):
         desvio = (sum(prob[m] * (obj[m] - media)**2 for m in range(M)) / (M * somaprob))**0.5 if amostragem else 0
         UB = media + ZALPHA2 * desvio
         if criterioParada():
-            break                           # ótimo encontrado
+            break                                   # ótimo encontrado
 
-        print(f"\nLB = {LB}, UB = {UB}\n* PASSO BACKWARD *")
+        print(f"LB = {LB}, UB = {UB}\n\n* PASSO BACKWARD *\n")
         # Demais estágios
         for t in range(H - 2, 0, -1):
             for m in range(M):
                 if cenarioRepetido(m, t) == -1:
                     adicionaCorteBenders(m, t)
-                    
-        # Primeiro estágio
-        adicionaCorteBenders(0, 0)
-    
+        adicionaCorteBenders(0, 0)                  # primeiro estágio
+
     f.write(f"***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nTempo de execução: {time.time() - start}s\n")
-    f.write(f"z* estocástico = {UB}\ngap estocástico = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
-    f.write(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}; ")
-    f.write(f"total de cortes: {sum(len(eList) for eList in eLists)}; cortes repetidos (não adicionados): {cortes_repetidos}")
+    f.write(f"z* estocástico = {UB}\ngap estocástico = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%\n")
+    f.write(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}\n")
+    f.write(f"Total de cortes: {sum(len(eList) for eList in eLists)}\nCortes repetidos (não adicionados): {cortes_repetidos}")
     print(f"\n\n***SOLUÇÃO ÓTIMA ENCONTRADA***\n\nTempo de execução: {time.time() - start}s")
     print(f"z* estocástico = {UB}\ngap estocástico = {UB} - {LB} = {UB - LB} ({(UB - LB)*100 / LB})%")
-    print(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}; ", end="")
-    print(f"total de cortes: {sum(len(eList) for eList in eLists)}; cortes repetidos (não adicionados): {cortes_repetidos}")
-
-    # Resolve o problema exato para obter uma solução viável
-    amostra = geraTodosCenarios()
-    M = len(amostra)
-    sAtual = [[-1]*H for m in range(M)]
-    vAtual = [[{} for t in range(H - 1)] for m in range(M)]
-    xAtual = [[{} for t in range(H - 1)] for m in range(M)]
-    z1Atual = [[{} for t in range(H - 1)] for m in range(M)]
-    z2Atual = [[{} for t in range(H - 2)] for m in range(M)]
-    piAtual = [{} for m in range(M)]
-    UBexato = value(models[0].OBJ) - value(models[0].theta)
-    for m in range(M):
-        sAtual[m][0] = value(models[0].s)
-        vAtual[m][0] = {c: value(models[0].v[c]) for c in models[0].P}
-        xAtual[m][0] = {c: value(models[0].x[c]) for c in models[0].A}
-        z2Atual[m][0] = {c: value(models[0].z2[c]) for c in models[0].A}
-        for t in range(1, H):
-            m1 = cenarioRepetido(m, t)
-            if m1 == -1:        # cenário inédito
-                results = resolveCenario(t, m)
-                armazenaSolucao(m, t)
-                p = 1
-                for t1 in range(1, t + 1):
-                    p *= models[t1].p[amostra[m][t1]]
-                if t < H - 1:
-                    UBexato += p * (value(models[t].OBJ) - value(models[t].theta))
-                else:
-                    UBexato += p * value(models[t].OBJ)
-            else:               # cenário repetido
-                copiaSolucao(t, m1, m)
-
-    print(f"\nz* = {UBexato}\ngap = {UBexato} - {LB} = {UBexato - LB} ({(UBexato - LB)*100 / LB})%")
-    print(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}")
-    print(f"x = {[value(models[0].x[c]) for c in models[0].A]}")
-    print(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}")
-    f.write(f"\nz* = {UBexato}\ngap = {UBexato} - {LB} = {UBexato - LB} ({(UBexato - LB)*100 / LB})%")
-    f.write(f"\nEstágio 0:\ns = {value(models[0].s)}\nv = {[value(models[0].v[c]) for c in models[0].P]}\n")
-    f.write(f"x = {[value(models[0].x[c]) for c in models[0].A]}\n")
-    f.write(f"z2 = {[value(models[0].z2[c]) for c in models[0].A]}\ntheta = {value(models[0].theta)}\n")
-    for t in range(1, H):
-        f.write(f"\nEstágio {t}:\n")
-        for m in range(M):
-            if cenarioRepetido(m, t) == -1:
-                f.write(f"\nAmostra {m}: {amostra[m]}")
-                resolveCenario(t, m)
-                imprimeSolucao(t)
+    print(f"Iterações: {iter}\nCortes gerados no estágio 0: {len(eLists[0])}")
+    print(f"Total de cortes: {sum(len(eList) for eList in eLists)}\nCortes repetidos (não adicionados): {cortes_repetidos}")
+    obtemSolucaoViavel()    
     f.close()
 
 # Modo de execução:
-# python sddip.py <arquivo> <H> <M>
+# python sddp.py <arquivo> <H> <M>
 # arquivo: nome do arquivo de entrada
 # H: número de estágios na instância
 # M: número de amostras a serem realizadas por iteração
 if __name__ == "__main__":
-    sddp(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+    if len(sys.argv) == 4:
+        sddp(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+    else:
+        print("Modo de execução:\npython sddp.py <arquivo> <H> <M>\nonde:")
+        print("arquivo: nome do arquivo de entrada")
+        print("H: número de estágios na instância")
+        print("M: número de amostras a serem realizadas por iteração")

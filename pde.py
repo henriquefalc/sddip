@@ -95,39 +95,41 @@ def pde(file, H, g):
     model.cancelamentoAdiamento = Constraint(model.A2, rule=cancelamentoAdiamento)
 
     # Resolve o modelo e imprime o resultado
-    print("Criando instância")
+    print("Criando instância...")
     opt = SolverFactory("cplex")
-    instance = model.create_instance(file, report_timing=True)
+    instance = model.create_instance(file)
     build_time = time.time()
     if build_time - start_time > TIME_LIMIT:
         print("Time limit alcançado antes de começar a resolver!")
         return
     #instance.pprint()
-    print("Resolvendo")
+    print("Resolvendo...")
     opt.options['timelimit'] = TIME_LIMIT
-    opt.solve(instance, tee=True)
+    opt.solve(instance)
     solution_time = time.time()
     #instance.display()
 
     print(f"\n\n***FIM DA EXECUÇÃO***\n\nz* = {value(instance.OBJ)}")
     print(f"Tempo de execução: {solution_time - start_time}s - Construção: {build_time - start_time}s; Solução: {solution_time - build_time}s")
-    f = open(f"saida/{os.path.basename(file)}.txt", 'w')
+    f = open(f"{os.path.basename(file)}.txt", 'w')
     f.write(f"***FIM DA EXECUÇÃO***\n\nz* = {value(instance.OBJ)}\n")
     f.write(f"Tempo de execução: {solution_time - start_time}s - Construção: {build_time - start_time}s; Solução: {solution_time - build_time}s\n")
-    for s in instance.S:
-        f.write(f"\nCenário {s}:\ns = {value(instance.s[s])}\n")
-        if stages[s] > 1:
-            f.write(f"u = {value(instance.u[s])}\n")
-        if stages[s] < H:
-            f.write(f"v = {[value(instance.v[c, s]) for c in instance.P]}\n")
-        if stages[s] == 2:
-            f.write(f"w = {value(instance.w[s])}\n")
-        if stages[s] == 1:
-            f.write(f"x = {[value(instance.x[c]) for c in instance.A2]}\n")
-        if stages[s] == 3:
-            f.write(f"y = {value(instance.y[s])}\n")
-        if stages[s] == 1:
-            f.write(f"z = {[value(instance.z[c]) for c in instance.A2]}\n")
+    f.write(f"\nEstágio 0:\ns = {value(instance.s[1])}\n")
+    f.write(f"v = {[value(instance.v[c, 1]) for c in instance.P]}\n")
+    f.write(f"x = {[value(instance.x[c]) for c in instance.A2]}\n")
+    f.write(f"z = {[value(instance.z[c]) for c in instance.A2]}\n")
+    f.close()
 
+# Modo de execução:
+# python pde.py <arquivo> <H> <g>
+# arquivo: nome do arquivo de entrada
+# H: número de estágios na instância
+# g: grau da árvore de cenários na instância
 if __name__ == "__main__":
-    pde(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+    if len(sys.argv) == 4:
+        pde(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+    else:
+        print("Modo de execução:\npython pde.py <arquivo> <H> <g>\nonde:")
+        print("arquivo: nome do arquivo de entrada")
+        print("H: número de estágios na instância")
+        print("g: grau da árvore de cenários na instância")
